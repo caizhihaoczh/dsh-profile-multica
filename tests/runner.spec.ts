@@ -177,6 +177,80 @@ describe('Multica runner', () => {
     await ctx.fiber.dispose()
   })
 
+  // DSH session format v2 (the 0.1.3 line) records no per-delta
+  // `assistant/chunk` event: the committed settlement is the only durable
+  // source, so a run must still project its text or Multica shows tool
+  // activity and never the answer.
+  it('projects the committed assistant message when no live chunk arrives', async () => {
+    const ctx = new Context()
+    const input = new PassThrough()
+    let out = ''
+    let flushed = false
+    const agentCtx = new Context()
+    const session = { id: 'session-1' }
+    const agent = {
+      id: 'session-1',
+      session,
+      ctx: agentCtx,
+      cancel: () => {},
+      followup: () => {
+        agentCtx.emit('session/event', session as never, {
+          type: 'assistant/message', seq: 0, time: 1,
+          data: {
+            turn: 1,
+            step: 1,
+            message: createAssistantMessage({
+              content: [
+                { type: 'reasoning', text: 'weighing options' },
+                { type: 'text', text: 'final answer' },
+              ],
+              source: { provider: 'provider/a', model: 'model/b' },
+            }),
+            usage: { inputTokens: 3, outputTokens: 2 },
+          },
+        } as never)
+        agentCtx.emit('session/event', session as never, {
+          type: 'turn/end', seq: 1, time: 2, data: { turn: 1, reason: { kind: 'completed' } },
+        } as never)
+      },
+      whenIdle: () => Promise.resolve(),
+    }
+    ctx.provide('agentDefaultModel', {
+      currentSelection: () => ({ provider: 'provider/a', model: 'model/b' }),
+    } as never)
+    ctx.provide('llm', { listProviders: () => [] } as never)
+    ctx.provide('sessions', { flush: async () => { flushed = true; return true } } as never)
+    ctx.provide('agents', {
+      create: async (options: { setup?: (agentCtx: Context) => Promise<void> | void }) => {
+        await options.setup?.(agentCtx)
+        return { agent, dispose: () => agentCtx.fiber.dispose() }
+      },
+    } as never)
+    internals.stdin = input
+    internals.stdout = { write: (chunk: string) => { out += chunk; return true } }
+    internals.stderr = { write: () => true }
+    const exited = new Promise<number>((resolve) => { ctx.provide('appExit', resolve) })
+    apply(ctx, { mode: 'stdio' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    input.write(`${JSON.stringify({
+      v: 1,
+      type: 'execute',
+      request_id: 'request-1',
+      cwd: '/work',
+      prompt: 'say hello',
+    })}\n`)
+    expect(await exited).toBe(0)
+    expect(flushed).toBe(true)
+    const frames = parseFrames(out)
+    expect(frames.map(value => value.type)).toEqual(['ready', 'session', 'thinking', 'text', 'usage', 'result'])
+    expect(frames[2]).toMatchObject({ type: 'thinking', content: 'weighing options' })
+    expect(frames[3]).toMatchObject({ type: 'text', content: 'final answer' })
+    expect(frames.at(-1)).toMatchObject({
+      type: 'result', request_id: 'request-1', status: 'completed', session_id: 'session-1', output: 'final answer',
+    })
+    await ctx.fiber.dispose()
+  })
+
   it('fails loud without launcher-owned appExit', () => {
     const ctx = new Context()
     services(ctx)

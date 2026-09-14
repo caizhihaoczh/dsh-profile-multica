@@ -21,7 +21,9 @@ execute 请求可以创建新 Agent 或恢复持久化 Session，选择提供方
 ## 环境要求
 
 - Node.js `^22.19.0` 或 `>=24.0.0`
-- `@deepseek-ai/dsh` `0.1.0-rc.7` 或兼容的后续预发布版本
+- `@deepseek-ai/dsh` `0.1.0-rc.7` 及后续版本。助手输出取自持久化的 `assistant/message`
+  结算事件，因此在 session format v2（0.1.3 线起）不再记录逐条 `assistant/chunk` 事件的
+  版本上同样可用。
 - `PATH` 中存在 pnpm，供 `dsh plugin` 使用
 
 ## 安装
