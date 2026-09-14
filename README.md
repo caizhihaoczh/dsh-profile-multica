@@ -21,7 +21,9 @@ An execute request can create a fresh Agent or resume a persisted Session, selec
 ## Requirements
 
 - Node.js `^22.19.0` or `>=24.0.0`
-- `@deepseek-ai/dsh` `0.1.0-rc.7` or a compatible later prerelease
+- `@deepseek-ai/dsh` `0.1.0-rc.7` or later. Assistant output is projected from the durable
+  `assistant/message` settlement, so the bundle also covers the 0.1.3+ lines, where session
+  format v2 stopped recording per-delta `assistant/chunk` events.
 - pnpm on `PATH` for `dsh plugin`
 
 ## Install

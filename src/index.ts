@@ -159,19 +159,45 @@ interface ObservedTurn {
 
 function observe(io: BridgeIo, requestId: string, agent: Agent): { outcome: ObservedTurn; dispose(): void } {
   const outcome: ObservedTurn = { output: '' }
+  // DSH session format v2 (the 0.1.3 line) stopped recording per-delta
+  // `assistant/chunk` events: an assistant stream is aggregated per attempt into
+  // the durable `assistant/message` settlement, and live deltas now reach only
+  // the Web client's own channel. Against such a DSH this observer produced no
+  // `text`/`thinking` frame at all, so Multica showed the tool activity and
+  // never the final answer, while the text sat in the terminal result frame.
+  // Publish the committed message's blocks instead, skipping the ones a live
+  // delta already delivered.
+  let liveTextSeen = false
+  let liveThinkingSeen = false
   const dispose = agent.ctx.on('session/event', (session, event: SessionEvent) => {
     if (session.id !== agent.session.id) return
     if (event.type === 'assistant/chunk') {
       const chunk = event.data.chunk
-      if (chunk.type === 'text-delta') frame(io, { v: 1, type: 'text', request_id: requestId, content: chunk.text })
-      if (chunk.type === 'reasoning-delta') frame(io, { v: 1, type: 'thinking', request_id: requestId, content: chunk.text })
+      if (chunk.type === 'text-delta') {
+        liveTextSeen = true
+        frame(io, { v: 1, type: 'text', request_id: requestId, content: chunk.text })
+      }
+      if (chunk.type === 'reasoning-delta') {
+        liveThinkingSeen = true
+        frame(io, { v: 1, type: 'thinking', request_id: requestId, content: chunk.text })
+      }
       return
     }
     if (event.type === 'assistant/message') {
-      outcome.output = event.data.message.content
-        .filter(block => block.type === 'text')
-        .map(block => block.text)
-        .join('')
+      const content = event.data.message.content
+      outcome.output = content.filter(block => block.type === 'text').map(block => block.text).join('')
+      // Block order is the message's own order, so reasoning reaches Multica
+      // before the answer it belongs to, exactly as a live stream would.
+      for (const block of content) {
+        if (block.type === 'text' && block.text !== '' && !liveTextSeen) {
+          frame(io, { v: 1, type: 'text', request_id: requestId, content: block.text })
+        }
+        if (block.type === 'reasoning' && block.text !== '' && !liveThinkingSeen) {
+          frame(io, { v: 1, type: 'thinking', request_id: requestId, content: block.text })
+        }
+      }
+      liveTextSeen = false
+      liveThinkingSeen = false
       const usage = event.data.usage
       if (usage !== undefined) {
         frame(io, {
