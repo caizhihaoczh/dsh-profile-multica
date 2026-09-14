@@ -18,6 +18,8 @@ dsh --profile multica --stdio
 
 An execute request can create a fresh Agent or resume a persisted Session, select a provider/model/reasoning level, and mount task-scoped stdio or Streamable HTTP MCP servers. `MULTICA_DSH_SESSION_ROOT` selects the JSONL persistence directory. `DSH_PERMISSION_MODE` may be `read-only`, `workspace-write`, or `danger-full-access`; the default is `workspace-write`. This transport has no interactive approval round trip, so operations outside the selected policy fail instead of waiting.
 
+DSH removes credential-shaped variables from every subprocess the model spawns, so the bridge exempts exactly one name from that scrub: the daemon-provided `MULTICA_TOKEN`, which the agent's `multica` CLI calls need to attribute reads and writes to the current task. Every other `*TOKEN*`, `*KEY*`, `*SECRET*`, and `*PASSWORD*` variable stays scrubbed.
+
 ## Requirements
 
 - Node.js `^22.19.0` or `>=24.0.0`
