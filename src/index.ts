@@ -26,6 +26,7 @@ import {
   type MulticaExecuteCommand,
   type MulticaMcpServer,
 } from './protocol.ts'
+import { installMulticaTerminalEnvironment } from './environment.ts'
 import type { MulticaMode } from './startup.ts'
 
 /** Stable Cordis plugin name. */
@@ -453,6 +454,12 @@ async function run(ctx: Context, mode: MulticaMode, io: BridgeIo): Promise<void>
     await models(ctx, io)
     io.exit(0)
     return
+  }
+  const forwarding = await installMulticaTerminalEnvironment(ctx)
+  if (forwarding !== undefined && !forwarding.forwarded) {
+    // Fail loudly at boot: a task token DSH scrubs away refuses the agent's
+    // first `multica` call with an opaque "requires a task-scoped mat_ token".
+    diagnostic(io, 'MULTICA_TOKEN is not reaching model-spawned subprocesses; in-task multica commands will be refused')
   }
   stdio(ctx, io)
 }

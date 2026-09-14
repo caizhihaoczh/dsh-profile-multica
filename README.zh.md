@@ -18,6 +18,8 @@ dsh --profile multica --stdio
 
 execute 请求可以创建新 Agent 或恢复持久化 Session，选择提供方、模型与推理等级，并挂载任务作用域内的 stdio 或 Streamable HTTP MCP server。`MULTICA_DSH_SESSION_ROOT` 指定 JSONL 持久化目录。`DSH_PERMISSION_MODE` 可设为 `read-only`、`workspace-write` 或 `danger-full-access`，默认为 `workspace-write`。该传输不支持交互审批，因此超出所选策略的操作会直接失败。
 
+DSH 会从模型发起的每个子进程中移除凭据形态的变量，因此本桥接只豁免其中一个名字：daemon 注入的 `MULTICA_TOKEN`——agent 调用 `multica` CLI 读取任务、发表评论时需要的任务令牌。其余 `*TOKEN*`、`*KEY*`、`*SECRET*`、`*PASSWORD*` 变量仍会被擦洗。
+
 ## 环境要求
 
 - Node.js `^22.19.0` 或 `>=24.0.0`
