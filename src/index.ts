@@ -89,10 +89,24 @@ function protocolError(io: BridgeIo, error: MulticaProtocolError, requestId?: st
   })
 }
 
-function selection(ctx: Context, command: MulticaExecuteCommand): ModelSelection {
+/**
+ * Resolve the exact model route for one execute request.
+ *
+ * A reasoning effort describes one model, and DSH refuses the whole run when an
+ * effort the model does not declare is applied to it (`UNSUPPORTED_REASONING_EFFORT`).
+ * The profile's default-model effort is therefore inherited only when the request
+ * names no model, or names exactly that default model — never across models.
+ * @param ctx - plugin context carrying the default model selection.
+ * @param command - the validated execute request.
+ * @returns the provider, model, and the effort the request is entitled to.
+ */
+export function selection(ctx: Context, command: MulticaExecuteCommand): ModelSelection {
   const fallback = ctx.agentDefaultModel.currentSelection()
   const requested = command.model
-  const effort = requested?.reasoning_effort ?? command.reasoning_effort ?? fallback.reasoningEffort
+  const namesDefaultModel = requested === undefined
+    || (requested.provider === fallback.provider && requested.id === fallback.model)
+  const effort = requested?.reasoning_effort ?? command.reasoning_effort
+    ?? (namesDefaultModel ? fallback.reasoningEffort : undefined)
   return {
     provider: requested?.provider ?? fallback.provider,
     model: requested?.id ?? fallback.model,
