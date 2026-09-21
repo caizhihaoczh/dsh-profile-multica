@@ -4,7 +4,8 @@ import { PassThrough } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { apply, Config, internals } from '../src/index.ts'
+import { apply, Config, internals, selection } from '../src/index.ts'
+import type { MulticaExecuteCommand } from '../src/protocol.ts'
 
 const original = { ...internals }
 beforeEach(() => { internals.armForcedExit = () => {} })
@@ -181,5 +182,59 @@ describe('Multica runner', () => {
     const ctx = new Context()
     services(ctx)
     expect(() => { apply(ctx, { mode: 'probe' }) }).toThrow('must provide ctx.appExit')
+  })
+})
+
+/**
+ * The bridge must route a reasoning effort to the model that declares it. DSH
+ * refuses the whole run when the applied effort is not one the model supports
+ * (`UNSUPPORTED_REASONING_EFFORT`), which is how a profile whose default model is
+ * DeepSeek at `high` broke a request that had named an LM Studio model.
+ */
+describe('selection', () => {
+  const fallback = { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' }
+
+  function defaultModelContext(): Context {
+    const ctx = new Context()
+    ctx.provide('agentDefaultModel', { currentSelection: () => ({ ...fallback }) } as never)
+    return ctx
+  }
+
+  function execute(overrides: Partial<MulticaExecuteCommand> = {}): MulticaExecuteCommand {
+    return {
+      v: 1,
+      type: 'execute',
+      request_id: 'request-1',
+      cwd: '/work',
+      prompt: 'say hello',
+      mcp_servers: [],
+      ...overrides,
+    }
+  }
+
+  it('leaves the effort unset for a requested model that carries none', () => {
+    expect(selection(defaultModelContext(), execute({ model: { provider: 'lmstudio', id: 'qwen3.8-27b-mlx' } })))
+      .toEqual({ provider: 'lmstudio', model: 'qwen3.8-27b-mlx' })
+  })
+
+  it('keeps the effort the request names on its own model', () => {
+    expect(selection(defaultModelContext(), execute({
+      model: { provider: 'deepseek-official', id: 'deepseek-v4-flash', reasoning_effort: 'low' },
+    }))).toEqual({ provider: 'deepseek-official', model: 'deepseek-v4-flash', reasoningEffort: 'low' })
+  })
+
+  it('inherits provider, model, and effort when the request names no model', () => {
+    expect(selection(defaultModelContext(), execute()))
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' })
+  })
+
+  it('keeps the default effort when the request names the default model', () => {
+    expect(selection(defaultModelContext(), execute({ model: { provider: 'deepseek-official', id: 'deepseek-flash' } })))
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'high' })
+  })
+
+  it('prefers the task-level effort over the default model effort', () => {
+    expect(selection(defaultModelContext(), execute({ reasoning_effort: 'low' })))
+      .toEqual({ provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'low' })
   })
 })
